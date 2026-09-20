@@ -60,7 +60,6 @@ def seconds_since_last_commit(repo: Path) -> int:
     seconds = int(subprocess.run(["git","-C",repo,"log","-1","--format=%ct"], capture_output = True, text = True).stdout)
     return int(time.time() - seconds)
 
-
 def has_unpushed_commits(repo: Path) -> bool:
     """
     Return True if the current branch has commits that haven't been
@@ -74,14 +73,11 @@ def has_unpushed_commits(repo: Path) -> bool:
       than a crash. Check subprocess.run(...).returncode.
     """
 
-    unpsuhed_commits = subprocess.run("git","-C",repo,"log","@u..","--oneline", capture_output = True, text = True).stdout
-    
-    return 
-    
-
-
-# endregion --- Git Status Checks ---
-
+    unpushed_commits = subprocess.run("git","-C",repo,"log","@{u}..","--oneline"], capture_output = True, text = True)
+    if unpushed_commits.returncode != 0:
+        # no upstream, or some other error -> nothing to report
+        return False
+    return bool(unpushed_commits.stdout)
 
 # region --- Stale Determination ---
 def check_repo(repo: Path) -> dict | None:
