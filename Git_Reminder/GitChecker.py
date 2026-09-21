@@ -10,7 +10,7 @@ SCAN_ROOTS = [
 ]
 SILENCED_REPOS = ["LaloStockTest","ESPP_Backtester"]
 SCAN_MAX_DEPTH = 3
-STALE_THRESHOLD_HOURS = 0
+STALE_THRESHOLD_HOURS = 24
 
 # Store last notification sate per repo -> LaunchAgent won't renotify constantly
 STATE_FILE = Path.home() / "Scripts" / "Git_Reminder" / ".notified_state.json"
