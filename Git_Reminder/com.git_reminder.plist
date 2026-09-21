@@ -11,6 +11,10 @@
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/YOUR_USERNAME/Scripts/Git_Reminder</string>
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USERNAME/Scripts/Git_Reminder/launchagent.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USERNAME/Scripts/Git_Reminder/launchagent.err.log</string>
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>

@@ -148,7 +148,11 @@ def notify(stale: list[dict]) -> None:
 
     notif = "\n".join(lines)
 
-    pync.notify(notif, title="Git Reminder")
+    # wait=True: pync launches terminal-notifier via Popen without waiting
+    # by default. Under a LaunchAgent, launchd tears down the job's whole
+    # process group the instant this script exits, which can kill
+    # terminal-notifier before it finishes registering with usernoted.
+    pync.notify(notif, title="Git Reminder", wait=True)
 
 
 def main():
