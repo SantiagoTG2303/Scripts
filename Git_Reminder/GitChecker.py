@@ -2,13 +2,15 @@ import json
 import subprocess
 import time
 from pathlib import Path
+import pync
 
 # Directories to scan for repos
 SCAN_ROOTS = [
     Path.home() / "Scripts", Path.home() / "Projects"
 ]
+SILENCED_REPOS = ["LaloStockTest","ESPP_Backtester"]
 SCAN_MAX_DEPTH = 3
-STALE_THRESHOLD_HOURS = 24
+STALE_THRESHOLD_HOURS = 0
 
 # Store last notification sate per repo -> LaunchAgent won't renotify constantly
 STATE_FILE = Path.home() / "Scripts" / "Git_Reminder" / ".notified_state.json"
@@ -31,6 +33,7 @@ def discover_repos(roots: list[Path], max_depth: int) -> list[Path]:
         for path in roots
         for repo in path.rglob(".git")
         if len(repo.relative_to(path).parts) <= max_depth
+        and repo.parent.name not in SILENCED_REPOS
     ]
     return repos
 
@@ -49,7 +52,7 @@ def has_uncommitted_changes(repo: Path) -> bool:
     # if git_status.stdout is empty -> False -> no uncommitted changes
     return bool(git_status.stdout)
     
-def seconds_since_last_commit(repo: Path) -> int:
+def seconds_since_last_commit(repo: Path) -> float:
     """
     Return how many seconds old the last commit is.
 
@@ -57,8 +60,11 @@ def seconds_since_last_commit(repo: Path) -> int:
     Unix timestamp. Compare it against time.time().
     """
 
-    seconds = int(subprocess.run(["git","-C",repo,"log","-1","--format=%ct"], capture_output = True, text = True).stdout)
-    return int(time.time() - seconds)
+    result = subprocess.run(["git","-C",repo,"log","-1","--format=%ct"], capture_output = True, text = True)
+    if result.returncode != 0:
+        # repo has no commits yet -> treat as infinitely stale
+        return float("inf")
+    return (time.time() - float(result.stdout))
 
 def has_unpushed_commits(repo: Path) -> bool:
     """
@@ -73,81 +79,76 @@ def has_unpushed_commits(repo: Path) -> bool:
       than a crash. Check subprocess.run(...).returncode.
     """
 
-    unpushed_commits = subprocess.run("git","-C",repo,"log","@{u}..","--oneline"], capture_output = True, text = True)
+    # git log --oneline : prints out commit history, one per line : <commit_hash> /
+    #                                                               <commits with HEAD -> main or origin/main pointing at them> /
+    #                                                               <gc message>
+    # with @{u}.. flag : only outputs local commits not no upstream branch
+    unpushed_commits = subprocess.run(["git","-C",repo,"log","@{u}..","--oneline"], capture_output = True, text = True)
     if unpushed_commits.returncode != 0:
         # no upstream, or some other error -> nothing to report
         return False
     return bool(unpushed_commits.stdout)
 
-# region --- Stale Determination ---
 def check_repo(repo: Path) -> dict | None:
-    """
-    Combine the checks above into one verdict for a single repo.
 
-    Should return something like:
-        {"repo": repo, "reason": "uncommitted changes"} or
-        {"repo": repo, "reason": "unpushed commits"}
-    if the repo is stale, or None if it's clean / too recent to flag.
+    repo_status = {}
 
-    Suggested logic:
-    - Not stale at all if there are no uncommitted changes AND no
-      unpushed commits.
-    - Even if there ARE uncommitted changes, don't flag it unless
-      seconds_since_last_commit(repo) exceeds STALE_THRESHOLD_HOURS
-      (converted to seconds) -- otherwise you'll get pinged for a repo
-      you're actively working in right now.
-    """
-    raise NotImplementedError
+    # a little inefficient -> each of these function calls initiates a subprocess -> 6 initiated, only 3 actually needed
+    if has_uncommitted_changes(repo) and has_unpushed_commits(repo) and seconds_since_last_commit(repo) > (STALE_THRESHOLD_HOURS * 3600):
+        repo_status[repo.name] = "uncommited changes and unpushed commits"
+    elif has_uncommitted_changes(repo) and seconds_since_last_commit(repo) > (STALE_THRESHOLD_HOURS * 3600):
+        repo_status[repo.name] = "uncommited changes"
+    elif has_unpushed_commits(repo) and seconds_since_last_commit(repo) > (STALE_THRESHOLD_HOURS * 3600):
+        repo_status[repo.name] = "unpushed commits"
 
+    return repo_status if repo_status else None
 
-# endregion --- Stale Determination ---
-
-
-# region --- Notification State (avoid duplicate nagging) ---
 def load_notified_state() -> dict:
-    """
-    Read STATE_FILE (JSON) and return its contents, or an empty dict if
-    the file doesn't exist yet.
-    """
-    raise NotImplementedError
+
+    if not STATE_FILE.exists():
+        return {}
+    with open(STATE_FILE) as f:
+        return json.load(f)
 
 
 def save_notified_state(state: dict) -> None:
-    """
-    Write `state` back to STATE_FILE as JSON.
-    """
-    raise NotImplementedError
+
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
 
 
 def should_renotify(repo: Path, state: dict) -> bool:
     """
     Return True if `repo` either has no recorded notification yet, or
-    its last notification was more than 24h ago (so you get a daily
-    reminder, not a one-time-ever nag).
+    its last notification was more than 24h ago
     """
-    raise NotImplementedError
 
+    last_notified = state.get(str(repo))
+    if last_notified is None:
+        return True
+    return (time.time() - last_notified) > (STALE_THRESHOLD_HOURS * 3600)
 
-# endregion --- Notification State ---
-
-
-# region --- Notification ---
 def notify(stale: list[dict]) -> None:
-    """
-    Fire a single macOS notification summarizing every stale repo.
 
-    Hint: shell out to `osascript -e 'display notification "<body>" with
-    title "<title>"'` via subprocess.run(). Build the body string from
-    the repo names in `stale` (e.g. "Scripts, project-x, dotfiles").
+    uncommitted_repos = []
+    unpushed_repos = []
+    # stale contains a list of dicts in the form repo:reason (see check_repo)
+    for entry in stale:
+        [(repo, reason)] = entry.items()
+        if "uncommited changes" in reason:
+            uncommitted_repos.append(repo)
+        if "unpushed commits" in reason:
+            unpushed_repos.append(repo)
 
-    Watch out for quote-escaping: repo names or the body string could
-    break the AppleScript string if they contain quotes -- keep this in
-    mind when formatting the -e argument.
-    """
-    raise NotImplementedError
+    lines = []
+    if uncommitted_repos:
+        lines.append(f"Uncommitted: {', '.join(uncommitted_repos)}")
+    if unpushed_repos:
+        lines.append(f"Unpushed: {', '.join(unpushed_repos)}")
 
+    notif = "\n".join(lines)
 
-# endregion --- Notification ---
+    pync.notify(notif, title="Git Reminder")
 
 
 def main():
@@ -159,7 +160,7 @@ def main():
         result = check_repo(repo)
         if result and should_renotify(repo, state):
             stale.append(result)
-            state[str(repo)] = {"last_notified": ...}  # TODO: timestamp
+            state[str(repo)] = time.time()
 
     if stale:
         notify(stale)
