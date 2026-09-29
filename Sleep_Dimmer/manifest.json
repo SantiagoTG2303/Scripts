@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Sleep Dimmer",
+  "version": "1.0",
+  "description": "Overlays a black layer that slowly gets darker, so the screen dims below minimum brightness. Works in fullscreen.",
+  "permissions": ["storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Sleep Dimmer"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "commands": {
+    "toggle-dimmer": {
+      "suggested_key": { "default": "Alt+P" },
+      "description": "Start or stop dimming"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["defaults.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
